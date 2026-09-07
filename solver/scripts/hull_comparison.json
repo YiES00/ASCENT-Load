@@ -1,8 +1,8 @@
 {
  "n_critical": {
-  "2d": 5931,
-  "3d": 4231,
-  "both": 8662
+  "2d": 6533,
+  "3d": 4479,
+  "both": 9512
  },
  "design_2d": [
   1,
@@ -20,6 +20,7 @@
   29,
   30,
   31,
+  37,
   40,
   41,
   42,
@@ -41,8 +42,11 @@
   5,
   6,
   10,
+  19,
   20,
+  21,
   22,
+  23,
   24,
   25,
   26,
@@ -69,15 +73,27 @@
  ],
  "only_3d": [
   {
+   "case_id": 19,
+   "label": "Yaw Right VA RUD=25.0° β=0 MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.02
+  },
+  {
+   "case_id": 21,
+   "label": "Yaw Left VA RUD=-25.0° β=0 MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.02
+  },
+  {
+   "case_id": 23,
+   "label": "Yaw Right VC RUD=22.2° β=0 MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.02
+  },
+  {
    "case_id": 25,
    "label": "Yaw Left VC RUD=-22.2° β=0 MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.07
-  },
-  {
-   "case_id": 37,
-   "label": "Flap VF nz=2.0 MTOW",
-   "category": "flap",
    "exceedance_pct": 0.02
   },
   {

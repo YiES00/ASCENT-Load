@@ -11,9 +11,11 @@ best-fit rigid-body motion (t + theta x r, 6 parameters) — the SUPORT
 reference leaves both solutions defined only up to rigid content, so
 raw fields are not comparable; the elastic remainder is.
 
-Usage:  python scripts/r3_msc_displacement_metrics.py
-Data:   tests/validation/ILC8/ilc8_msc_sol144_v8_shellbend{_MSC,}.f06
-Output: r3_msc_displacement_metrics.json next to this script.
+Usage:  python scripts/r3_msc_displacement_metrics.py [deck-stem]
+        (no argument = v8; hold-out judgement uses
+         ilc8_msc_sol144_v9_holdout)
+Data:   tests/validation/ILC8/<stem>{_MSC,}.f06 and <stem>.bdf
+Output: r3_msc_displacement_metrics[_<ver>].json next to this script.
 """
 from __future__ import annotations
 
@@ -28,10 +30,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SOLVER = os.path.normpath(os.path.join(HERE, ".."))
 sys.path.insert(0, SOLVER)
 
-V8 = os.path.join(SOLVER, "tests", "validation", "ILC8")
-F_MSC = os.path.join(V8, "ilc8_msc_sol144_v8_shellbend_MSC.f06")
-F_NA = os.path.join(V8, "ilc8_msc_sol144_v8_shellbend.f06")
-DECK = os.path.join(V8, "ilc8_msc_sol144_v8_shellbend.bdf")
+ILC8 = os.path.join(SOLVER, "tests", "validation", "ILC8")
+# 기본은 v8(개발 진단에 쓴 덱). hold-out 판정은 인자로 v9 를 넘긴다 --
+# 기본값을 바꾸지 않는 이유는 archived v8 수치를 덮어쓰지 않기 위해서다.
+STEM = sys.argv[1] if len(sys.argv) > 1 else "ilc8_msc_sol144_v8_shellbend"
+F_MSC = os.path.join(ILC8, f"{STEM}_MSC.f06")
+F_NA = os.path.join(ILC8, f"{STEM}.f06")
+DECK = os.path.join(ILC8, f"{STEM}.bdf")
 
 CRITERIA = {"A1_L2_T3_pct": 10.0, "A2_max_T3_pct": 15.0,
             "A3_tip_pct": 10.0}
@@ -131,7 +136,8 @@ def main():
               f"[{'PASS' if r['pass_A3'] else 'FAIL'}]")
 
     out = {"criteria_declared": CRITERIA, "per_subcase": results}
-    path = os.path.join(HERE, "r3_msc_displacement_metrics.json")
+    suffix = "" if STEM.endswith("v8_shellbend") else f"_{STEM.split('_')[-2]}"
+    path = os.path.join(HERE, f"r3_msc_displacement_metrics{suffix}.json")
     with open(path, "w") as f:
         json.dump(out, f, indent=2)
     print(f"저장: {path}")

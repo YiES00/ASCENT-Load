@@ -7,7 +7,7 @@ Uses constant-strain membrane, constant-curvature bending, and
 """
 from __future__ import annotations
 import numpy as np
-from .base import BaseElement
+from .base import BaseElement, drill_scale
 
 class CTria3Element(BaseElement):
     def __init__(self, node_xyz: np.ndarray, E: float, nu: float, t: float, rho: float = 0.0,
@@ -114,7 +114,7 @@ class CTria3Element(BaseElement):
                 k[bend_dofs[i], bend_dofs[j]] += kb[i, j] + ks[i, j]
 
         # Drilling DOF (rz): small penalty
-        alpha = E * t * self.area * 1e-6
+        alpha = E * t * self.area * 1e-6 * drill_scale()
         for n_idx in range(3):
             k[6*n_idx+5, 6*n_idx+5] += alpha
 

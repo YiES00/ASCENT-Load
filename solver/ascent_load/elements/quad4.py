@@ -5,11 +5,96 @@ Uses 2x2 Gauss integration for membrane and bending, 1-point for shear (selectiv
 """
 from __future__ import annotations
 import numpy as np
-from .base import BaseElement, drill_scale
+from .base import BaseElement, drill_scale, membrane_mode, bending_mode
 
 # 2x2 Gauss points
 _GP2 = np.array([-1/np.sqrt(3), 1/np.sqrt(3)])
 _GW2 = np.array([1.0, 1.0])
+
+
+def _serendipity8(xi, eta):
+    """8절점 serendipity 형상함수와 (xi, eta) 미분. 순서 1..4 모서리, 5..8 변중점."""
+    N = np.array([
+        -0.25 * (1 - xi) * (1 - eta) * (1 + xi + eta),
+        -0.25 * (1 + xi) * (1 - eta) * (1 - xi + eta),
+        -0.25 * (1 + xi) * (1 + eta) * (1 - xi - eta),
+        -0.25 * (1 - xi) * (1 + eta) * (1 + xi - eta),
+        0.5 * (1 - xi ** 2) * (1 - eta), 0.5 * (1 + xi) * (1 - eta ** 2),
+        0.5 * (1 - xi ** 2) * (1 + eta), 0.5 * (1 - xi) * (1 - eta ** 2)])
+    dxi = np.array([
+        0.25 * (1 - eta) * (2 * xi + eta), 0.25 * (1 - eta) * (2 * xi - eta),
+        0.25 * (1 + eta) * (2 * xi + eta), 0.25 * (1 + eta) * (2 * xi - eta),
+        -xi * (1 - eta), 0.5 * (1 - eta ** 2), -xi * (1 + eta), -0.5 * (1 - eta ** 2)])
+    deta = np.array([
+        0.25 * (1 - xi) * (2 * eta + xi), 0.25 * (1 + xi) * (2 * eta - xi),
+        0.25 * (1 + xi) * (2 * eta + xi), 0.25 * (1 - xi) * (2 * eta - xi),
+        -0.5 * (1 - xi ** 2), -eta * (1 + xi), 0.5 * (1 - xi ** 2), -eta * (1 - xi)])
+    return N, dxi, deta
+
+
+def dkq_edge_coefficients(xy):
+    """DKQ 변 계수 a,b,c,d,e (각 (4,), 변 5..8 = 1-2, 2-3, 3-4, 4-1). Batoz-Tahar 1982."""
+    x, y = xy[:, 0], xy[:, 1]
+    i = np.array([0, 1, 2, 3])
+    j = np.array([1, 2, 3, 0])
+    xij = x[i] - x[j]
+    yij = y[i] - y[j]
+    L2 = xij ** 2 + yij ** 2
+    a = -xij / L2
+    b = 0.75 * xij * yij / L2
+    c = (0.25 * xij ** 2 - 0.5 * yij ** 2) / L2
+    d = -yij / L2
+    e = (0.25 * yij ** 2 - 0.5 * xij ** 2) / L2
+    return a, b, c, d, e
+
+
+def _dkq_H(N, a, b, c, d, e):
+    """회전장 보간 Hx, Hy (각 (12,)). DOF 순서 [w1, tx1, ty1, ..., w4, tx4, ty4],
+    Nastran 규약 tx = +w,y / ty = -w,x (상수곡률 3모드로 실측 확정)."""
+    N1, N2, N3, N4, N5, N6, N7, N8 = N
+    a5, a6, a7, a8 = a
+    b5, b6, b7, b8 = b
+    c5, c6, c7, c8 = c
+    d5, d6, d7, d8 = d
+    e5, e6, e7, e8 = e
+    Hx = np.array([
+        1.5 * (a5 * N5 - a8 * N8), b5 * N5 + b8 * N8, N1 - c5 * N5 - c8 * N8,
+        1.5 * (a6 * N6 - a5 * N5), b6 * N6 + b5 * N5, N2 - c6 * N6 - c5 * N5,
+        1.5 * (a7 * N7 - a6 * N6), b7 * N7 + b6 * N6, N3 - c7 * N7 - c6 * N6,
+        1.5 * (a8 * N8 - a7 * N7), b8 * N8 + b7 * N7, N4 - c8 * N8 - c7 * N7])
+    Hy = np.array([
+        1.5 * (d5 * N5 - d8 * N8), -N1 + e5 * N5 + e8 * N8, -(b5 * N5 + b8 * N8),
+        1.5 * (d6 * N6 - d5 * N5), -N2 + e6 * N6 + e5 * N5, -(b6 * N6 + b5 * N5),
+        1.5 * (d7 * N7 - d6 * N6), -N3 + e7 * N7 + e6 * N6, -(b7 * N7 + b6 * N6),
+        1.5 * (d8 * N8 - d7 * N7), -N4 + e8 * N8 + e7 * N7, -(b8 * N8 + b7 * N7)])
+    return Hx, Hy
+
+
+def dkq_bending_stiffness(xy, Db):
+    """DKQ 12x12 굽힘 강성 (w, tx, ty 절점순). 2x2 가우스, 횡전단 항 없음."""
+    a, b, c, d, e = dkq_edge_coefficients(xy)
+    k = np.zeros((12, 12))
+    for i in range(2):
+        for j in range(2):
+            xi, eta = _GP2[i], _GP2[j]
+            w = _GW2[i] * _GW2[j]
+            N, dNxi, dNeta = _serendipity8(xi, eta)
+            # 기하는 쌍선형
+            dNb_xi = 0.25 * np.array([-(1 - eta), (1 - eta), (1 + eta), -(1 + eta)])
+            dNb_eta = 0.25 * np.array([-(1 - xi), -(1 + xi), (1 + xi), (1 - xi)])
+            J = np.array([[dNb_xi @ xy[:, 0], dNb_xi @ xy[:, 1]],
+                          [dNb_eta @ xy[:, 0], dNb_eta @ xy[:, 1]]])
+            detJ = np.linalg.det(J)
+            Ji = np.linalg.inv(J)
+            Hx_xi, Hy_xi = _dkq_H(dNxi, a, b, c, d, e)
+            Hx_eta, Hy_eta = _dkq_H(dNeta, a, b, c, d, e)
+            Hx_x = Ji[0, 0] * Hx_xi + Ji[0, 1] * Hx_eta
+            Hx_y = Ji[1, 0] * Hx_xi + Ji[1, 1] * Hx_eta
+            Hy_x = Ji[0, 0] * Hy_xi + Ji[0, 1] * Hy_eta
+            Hy_y = Ji[1, 0] * Hy_xi + Ji[1, 1] * Hy_eta
+            B = np.vstack([Hx_x, Hy_y, Hx_y + Hy_x])
+            k += B.T @ Db @ B * detJ * w
+    return k
 
 class CQuad4Element(BaseElement):
     def __init__(self, node_xyz: np.ndarray, E: float, nu: float, t: float, rho: float = 0.0,
@@ -105,6 +190,33 @@ class CQuad4Element(BaseElement):
             bend_dofs.extend([6*n_idx+3, 6*n_idx+4])
             shear_dofs.extend([6*n_idx+2, 6*n_idx+3, 6*n_idx+4])
 
+        # 막: QM6 비적합 모드 (Taylor-Beresford-Wilson). 쌍선형 Q4 는 면내
+        # 굽힘에서 기생전단으로 잠긴다(종횡비 4 에서 해석해의 0.39). 요소
+        # 안에 u,v 각각 (1-xi^2), (1-eta^2) 모드를 더하고 정적 응축한다.
+        # 비적합 모드의 변형률은 중심 야코비안 J0 로 사상하고 detJ0/detJ 를
+        # 곱한다 — 이래야 왜곡 요소에서 패치 시험을 통과한다.
+        # 'q4' 는 2026-09-04 이전 archived 결과 재현용이다.
+        qm6 = membrane_mode() == "qm6"
+        kuu = np.zeros((8, 8))
+        kua = np.zeros((8, 4))
+        kaa = np.zeros((4, 4))
+        if qm6:
+            _, dNdxi0, dNdeta0 = self._shape_functions(0.0, 0.0)
+            J0 = self._jacobian(dNdxi0, dNdeta0)
+            detJ0 = np.linalg.det(J0)
+            J0inv = np.linalg.inv(J0)
+
+        # 굽힘: 기본은 DKQ(이산 Kirchhoff, 횡전단 항 없음). Mindlin+SRI 전단
+        # 벌칙은 보·외피가 절점을 공유하는 조립체를 과잉 구속해 MSC 대비
+        # 전기체 강성을 25% 올렸다(2026-09-04 hold-out 추적). 'mindlin' 은
+        # archived 결과 재현용.
+        dkq = bending_mode() == "dkq"
+        if dkq:
+            kb12 = dkq_bending_stiffness(self.xy_local, Db)
+            for ii in range(12):
+                for jj in range(12):
+                    k[shear_dofs[ii], shear_dofs[jj]] += kb12[ii, jj]
+
         # 2x2 integration for membrane and bending
         for i in range(2):
             for j in range(2):
@@ -125,10 +237,24 @@ class CQuad4Element(BaseElement):
                     Bm[2, 2*n_idx] = dNdy[n_idx]
                     Bm[2, 2*n_idx+1] = dNdx[n_idx]
 
-                km = Bm.T @ Dm @ Bm * detJ * w
-                for ii in range(8):
-                    for jj in range(8):
-                        k[mem_dofs[ii], mem_dofs[jj]] += km[ii, jj]
+                kuu += Bm.T @ Dm @ Bm * detJ * w
+                if qm6:
+                    dP_dxi = np.array([-2.0 * xi, 0.0])
+                    dP_deta = np.array([0.0, -2.0 * eta])
+                    ratio = detJ0 / detJ
+                    dPdx = ratio * (J0inv[0, 0] * dP_dxi + J0inv[0, 1] * dP_deta)
+                    dPdy = ratio * (J0inv[1, 0] * dP_dxi + J0inv[1, 1] * dP_deta)
+                    Ba = np.zeros((3, 4))
+                    for p in range(2):
+                        Ba[0, p] = dPdx[p]          # u 방향 모드
+                        Ba[2, p] = dPdy[p]
+                        Ba[1, 2 + p] = dPdy[p]      # v 방향 모드
+                        Ba[2, 2 + p] = dPdx[p]
+                    kua += Bm.T @ Dm @ Ba * detJ * w
+                    kaa += Ba.T @ Dm @ Ba * detJ * w
+
+                if dkq:
+                    continue
 
                 # Bending B-matrix (3 x 8) — Nastran 절점회전 규약
                 # (theta_x = +dw/dy, theta_y = -dw/dx): kxx = -theta_y,x,
@@ -148,30 +274,36 @@ class CQuad4Element(BaseElement):
                     for jj in range(8):
                         k[bend_dofs[ii], bend_dofs[jj]] += kb[ii, jj]
 
-        # 1-point integration for transverse shear (selective reduced integration)
-        xi_c, eta_c = 0.0, 0.0
-        w_c = 4.0  # weight for 1-point rule over [-1,1]^2
-        N_c, dNdxi_c, dNdeta_c = self._shape_functions(xi_c, eta_c)
-        J_c = self._jacobian(dNdxi_c, dNdeta_c)
-        detJ_c = np.linalg.det(J_c)
-        Jinv_c = np.linalg.inv(J_c)
-        dNdx_c = Jinv_c[0,0]*dNdxi_c + Jinv_c[0,1]*dNdeta_c
-        dNdy_c = Jinv_c[1,0]*dNdxi_c + Jinv_c[1,1]*dNdeta_c
+        km = kuu - kua @ np.linalg.solve(kaa, kua.T) if qm6 else kuu
+        for ii in range(8):
+            for jj in range(8):
+                k[mem_dofs[ii], mem_dofs[jj]] += km[ii, jj]
 
-        # 전단 변형률 (Nastran 규약): gxz = dw/dx + theta_y,
-        # gyz = dw/dy - theta_x — 순굽힘(theta_y=-dw/dx, theta_x=+dw/dy)에서
-        # 정확히 0이 되어 보 요소와 호환된다.
-        Bs = np.zeros((2, 12))
-        for n_idx in range(4):
-            Bs[0, 3*n_idx] = dNdx_c[n_idx]       # dw/dx
-            Bs[0, 3*n_idx+2] = N_c[n_idx]         # +theta_y
-            Bs[1, 3*n_idx] = dNdy_c[n_idx]         # dw/dy
-            Bs[1, 3*n_idx+1] = -N_c[n_idx]         # -theta_x
+        if not dkq:
+            # 1-point integration for transverse shear (selective reduced integration)
+            xi_c, eta_c = 0.0, 0.0
+            w_c = 4.0  # weight for 1-point rule over [-1,1]^2
+            N_c, dNdxi_c, dNdeta_c = self._shape_functions(xi_c, eta_c)
+            J_c = self._jacobian(dNdxi_c, dNdeta_c)
+            detJ_c = np.linalg.det(J_c)
+            Jinv_c = np.linalg.inv(J_c)
+            dNdx_c = Jinv_c[0,0]*dNdxi_c + Jinv_c[0,1]*dNdeta_c
+            dNdy_c = Jinv_c[1,0]*dNdxi_c + Jinv_c[1,1]*dNdeta_c
 
-        ks = Bs.T @ Ds @ Bs * detJ_c * w_c
-        for ii in range(12):
-            for jj in range(12):
-                k[shear_dofs[ii], shear_dofs[jj]] += ks[ii, jj]
+            # 전단 변형률 (Nastran 규약): gxz = dw/dx + theta_y,
+            # gyz = dw/dy - theta_x — 순굽힘(theta_y=-dw/dx, theta_x=+dw/dy)에서
+            # 정확히 0이 되어 보 요소와 호환된다.
+            Bs = np.zeros((2, 12))
+            for n_idx in range(4):
+                Bs[0, 3*n_idx] = dNdx_c[n_idx]       # dw/dx
+                Bs[0, 3*n_idx+2] = N_c[n_idx]         # +theta_y
+                Bs[1, 3*n_idx] = dNdy_c[n_idx]         # dw/dy
+                Bs[1, 3*n_idx+1] = -N_c[n_idx]         # -theta_x
+
+            ks = Bs.T @ Ds @ Bs * detJ_c * w_c
+            for ii in range(12):
+                for jj in range(12):
+                    k[shear_dofs[ii], shear_dofs[jj]] += ks[ii, jj]
 
         # Drilling DOF stabilization (rz DOFs: 5, 11, 17, 23)
         area = self._compute_area()

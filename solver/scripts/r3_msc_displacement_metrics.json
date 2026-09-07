@@ -7,80 +7,80 @@
   "per_subcase": {
     "1": {
       "n_common": 2644,
-      "L2_T3_pct": 17.822707333198892,
-      "max_T3_pct": 17.634527397059472,
+      "L2_T3_pct": 1.898866931129304,
+      "max_T3_pct": 3.2211463792082666,
       "tip_msc_mm": 190.11652008504745,
-      "tip_na_mm": 156.72866685839873,
-      "tip_pct": 17.561784326639724,
-      "pass_A1": false,
-      "pass_A2": false,
-      "pass_A3": false
+      "tip_na_mm": 193.73188286197615,
+      "tip_pct": 1.901656297575498,
+      "pass_A1": true,
+      "pass_A2": true,
+      "pass_A3": true
     },
     "2": {
       "n_common": 2644,
-      "L2_T3_pct": 17.807440969623936,
-      "max_T3_pct": 17.619077267450912,
+      "L2_T3_pct": 1.034827680812533,
+      "max_T3_pct": 3.619559950523357,
       "tip_msc_mm": 190.60557174446848,
-      "tip_na_mm": 157.022628782744,
-      "tip_pct": 17.619077267450912,
-      "pass_A1": false,
-      "pass_A2": false,
-      "pass_A3": false
+      "tip_na_mm": 192.28322901729405,
+      "tip_pct": 0.8801722098001875,
+      "pass_A1": true,
+      "pass_A2": true,
+      "pass_A3": true
     },
     "3": {
       "n_common": 2644,
-      "L2_T3_pct": 17.784296916890284,
-      "max_T3_pct": 17.595744447047117,
+      "L2_T3_pct": 0.627573709199258,
+      "max_T3_pct": 4.224763957762541,
       "tip_msc_mm": 191.29109068552538,
-      "tip_na_mm": 157.63199921853118,
-      "tip_pct": 17.595744447047117,
-      "pass_A1": false,
-      "pass_A2": false,
-      "pass_A3": false
+      "tip_na_mm": 190.33269000577064,
+      "tip_pct": 0.5010168933221792,
+      "pass_A1": true,
+      "pass_A2": true,
+      "pass_A3": true
     },
     "4": {
       "n_common": 2644,
-      "L2_T3_pct": 17.79579573771384,
-      "max_T3_pct": 17.607280551214764,
+      "L2_T3_pct": 0.5023324214325491,
+      "max_T3_pct": 3.9236938475198726,
       "tip_msc_mm": 725.64141500706,
-      "tip_na_mm": 597.8756952709623,
-      "tip_pct": 17.607280551214764,
-      "pass_A1": false,
-      "pass_A2": false,
-      "pass_A3": false
+      "tip_na_mm": 726.9913997147542,
+      "tip_pct": 0.18604019558076262,
+      "pass_A1": true,
+      "pass_A2": true,
+      "pass_A3": true
     },
     "5": {
       "n_common": 2644,
-      "L2_T3_pct": 17.795796129715068,
-      "max_T3_pct": 17.607320445515043,
+      "L2_T3_pct": 0.5023330315512581,
+      "max_T3_pct": 3.923695118517684,
       "tip_msc_mm": -290.25647430027897,
-      "tip_na_mm": -239.36776182256835,
-      "tip_pct": 17.532326402154506,
-      "pass_A1": false,
-      "pass_A2": false,
-      "pass_A3": false
+      "tip_na_mm": -291.1373804583327,
+      "tip_pct": 0.3034923373121419,
+      "pass_A1": true,
+      "pass_A2": true,
+      "pass_A3": true
     },
     "6": {
       "n_common": 2644,
-      "L2_T3_pct": 17.751249080051508,
-      "max_T3_pct": 17.56260288617861,
+      "L2_T3_pct": 2.4799592191508997,
+      "max_T3_pct": 5.097249153334286,
       "tip_msc_mm": 730.2596353599218,
-      "tip_na_mm": 602.0070355636028,
-      "tip_pct": 17.56260288617861,
-      "pass_A1": false,
-      "pass_A2": false,
-      "pass_A3": false
+      "tip_na_mm": 712.0604186398374,
+      "tip_pct": 2.4921570135962168,
+      "pass_A1": true,
+      "pass_A2": true,
+      "pass_A3": true
     },
     "7": {
       "n_common": 2644,
-      "L2_T3_pct": 17.81074682074463,
-      "max_T3_pct": 17.646947448392293,
+      "L2_T3_pct": 1.0724347174657525,
+      "max_T3_pct": 3.6152673527025065,
       "tip_msc_mm": 190.63160656297902,
-      "tip_na_mm": 156.99094713278416,
-      "tip_pct": 17.646947448392293,
-      "pass_A1": false,
-      "pass_A2": false,
-      "pass_A3": false
+      "tip_na_mm": 192.2477318095551,
+      "tip_pct": 0.8477740264136921,
+      "pass_A1": true,
+      "pass_A2": true,
+      "pass_A3": true
     }
   }
 }

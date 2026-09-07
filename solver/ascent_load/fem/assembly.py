@@ -10,7 +10,8 @@ import scipy.sparse as sp
 from .dof_manager import DOFManager
 from ..bdf.model import BDFModel
 from ..elements.bar import CBarElement
-from ..elements.quad4 import CQuad4Element
+from ..elements.base import membrane_mode, bending_mode, drill_scale
+from ..elements.quad4 import CQuad4Element, _serendipity8
 from ..elements.tria3 import CTria3Element
 from ..elements.quad8 import CQuad8Element
 from ..elements.tria6 import CTria6Element
@@ -581,6 +582,80 @@ def _assemble_cquad4_batch(elems, model, dof_mgr,
     return ptr_k, ptr_m
 
 
+def _batch_dkq_bending(xy_local, fac_b, nu_):
+    """DKQ(Batoz-Tahar) 12x12 굽힘 강성을 전 요소에 대해 벡터화 (ne, 12, 12).
+
+    DOF 순서는 절점마다 (w, tx, ty), Nastran 회전 규약. quad4.py 의
+    dkq_bending_stiffness 와 같은 정식화이며 배치 K == 합산 K 시험으로 고정한다.
+    """
+    ne = xy_local.shape[0]
+    x = xy_local[:, :, 0]
+    y = xy_local[:, :, 1]
+    i = np.array([0, 1, 2, 3])
+    j = np.array([1, 2, 3, 0])
+    xij = x[:, i] - x[:, j]
+    yij = y[:, i] - y[:, j]
+    L2 = xij ** 2 + yij ** 2
+    a = -xij / L2
+    b = 0.75 * xij * yij / L2
+    c = (0.25 * xij ** 2 - 0.5 * yij ** 2) / L2
+    d = -yij / L2
+    e = (0.25 * yij ** 2 - 0.5 * xij ** 2) / L2
+    a5, a6, a7, a8 = (a[:, k] for k in range(4))
+    b5, b6, b7, b8 = (b[:, k] for k in range(4))
+    c5, c6, c7, c8 = (c[:, k] for k in range(4))
+    d5, d6, d7, d8 = (d[:, k] for k in range(4))
+    e5, e6, e7, e8 = (e[:, k] for k in range(4))
+
+    def H(N):
+        N1, N2, N3, N4, N5, N6, N7, N8 = N
+        Hx = np.stack([
+            1.5 * (a5 * N5 - a8 * N8), b5 * N5 + b8 * N8, N1 - c5 * N5 - c8 * N8,
+            1.5 * (a6 * N6 - a5 * N5), b6 * N6 + b5 * N5, N2 - c6 * N6 - c5 * N5,
+            1.5 * (a7 * N7 - a6 * N6), b7 * N7 + b6 * N6, N3 - c7 * N7 - c6 * N6,
+            1.5 * (a8 * N8 - a7 * N7), b8 * N8 + b7 * N7, N4 - c8 * N8 - c7 * N7],
+            axis=1)
+        Hy = np.stack([
+            1.5 * (d5 * N5 - d8 * N8), -N1 + e5 * N5 + e8 * N8, -(b5 * N5 + b8 * N8),
+            1.5 * (d6 * N6 - d5 * N5), -N2 + e6 * N6 + e5 * N5, -(b6 * N6 + b5 * N5),
+            1.5 * (d7 * N7 - d6 * N6), -N3 + e7 * N7 + e6 * N6, -(b7 * N7 + b6 * N6),
+            1.5 * (d8 * N8 - d7 * N7), -N4 + e8 * N8 + e7 * N7, -(b8 * N8 + b7 * N7)],
+            axis=1)
+        return Hx, Hy
+
+    k = np.zeros((ne, 12, 12))
+    for gi in range(2):
+        for gj in range(2):
+            xi = _GP2[gi]
+            eta = _GP2[gj]
+            _, dNxi, dNeta = _serendipity8(xi, eta)
+            dNb_xi = 0.25 * np.array([-(1 - eta), (1 - eta), (1 + eta), -(1 + eta)])
+            dNb_eta = 0.25 * np.array([-(1 - xi), -(1 + xi), (1 + xi), (1 - xi)])
+            J00 = x @ dNb_xi
+            J01 = y @ dNb_xi
+            J10 = x @ dNb_eta
+            J11 = y @ dNb_eta
+            detJ = J00 * J11 - J01 * J10
+            inv = 1.0 / detJ
+            Ji00 = J11 * inv
+            Ji01 = -J01 * inv
+            Ji10 = -J10 * inv
+            Ji11 = J00 * inv
+            Hx_xi, Hy_xi = H(dNxi)
+            Hx_eta, Hy_eta = H(dNeta)
+            Hx_x = Ji00[:, None] * Hx_xi + Ji01[:, None] * Hx_eta
+            Hx_y = Ji10[:, None] * Hx_xi + Ji11[:, None] * Hx_eta
+            Hy_x = Ji00[:, None] * Hy_xi + Ji01[:, None] * Hy_eta
+            Hy_y = Ji10[:, None] * Hy_xi + Ji11[:, None] * Hy_eta
+            B = np.stack([Hx_x, Hy_y, Hx_y + Hy_x], axis=1)      # (ne, 3, 12)
+            Db_B = np.empty_like(B)
+            Db_B[:, 0] = fac_b[:, None] * (B[:, 0] + nu_[:, None] * B[:, 1])
+            Db_B[:, 1] = fac_b[:, None] * (nu_[:, None] * B[:, 0] + B[:, 1])
+            Db_B[:, 2] = fac_b[:, None] * ((1 - nu_[:, None]) / 2) * B[:, 2]
+            k += np.einsum('nai,naj->nij', B, Db_B) * detJ[:, None, None]
+    return k
+
+
 def _batch_cquad4_stiffness(xy_local, E_, nu_, t_, n_elem, r12_=1.0):
     """Compute 24x24 local stiffness for all CQUAD4 elements simultaneously.
 
@@ -614,6 +689,36 @@ def _batch_cquad4_stiffness(xy_local, E_, nu_, t_, n_elem, r12_=1.0):
     mem_idx = np.array([0,1, 6,7, 12,13, 18,19])  # u,v for 4 nodes
     bend_idx = np.array([3,4, 9,10, 15,16, 21,22])  # rx,ry for 4 nodes
     shear_idx = np.array([2,3,4, 8,9,10, 14,15,16, 20,21,22])  # w,rx,ry
+
+    # 막 QM6 비적합 모드 (quad4.py 와 동일 정식화, 벡터화). 중심 야코비안
+    # J0 와 detJ0 를 요소마다 미리 잡고, 가우스점마다 kua/kaa 를 누적한 뒤
+    # 응축한다. 'q4' 는 archived 결과 재현용.
+    qm6 = membrane_mode() == "qm6"
+    if qm6:
+        dNdxi0 = 0.25 * np.array([-1.0, 1.0, 1.0, -1.0])
+        dNdeta0 = 0.25 * np.array([-1.0, -1.0, 1.0, 1.0])
+        J0 = np.empty((ne, 2, 2))
+        J0[:, 0, 0] = dNdxi0 @ xy_local[:, :, 0].T
+        J0[:, 0, 1] = dNdxi0 @ xy_local[:, :, 1].T
+        J0[:, 1, 0] = dNdeta0 @ xy_local[:, :, 0].T
+        J0[:, 1, 1] = dNdeta0 @ xy_local[:, :, 1].T
+        detJ0 = J0[:, 0, 0] * J0[:, 1, 1] - J0[:, 0, 1] * J0[:, 1, 0]
+        inv_det0 = 1.0 / np.maximum(np.abs(detJ0), 1e-30) * np.sign(detJ0)
+        J0inv = np.empty((ne, 2, 2))
+        J0inv[:, 0, 0] = J0[:, 1, 1] * inv_det0
+        J0inv[:, 0, 1] = -J0[:, 0, 1] * inv_det0
+        J0inv[:, 1, 0] = -J0[:, 1, 0] * inv_det0
+        J0inv[:, 1, 1] = J0[:, 0, 0] * inv_det0
+        kua = np.zeros((ne, 8, 4))
+        kaa = np.zeros((ne, 4, 4))
+
+    # 굽힘: 기본 DKQ (횡전단 항 없음). Mindlin+SRI 벌칙은 보·외피 조립체를
+    # 과잉 구속해 MSC 대비 전기체 강성을 25% 올렸다(2026-09-04). 'mindlin'
+    # 은 archived 결과 재현용.
+    dkq = bending_mode() == "dkq"
+    if dkq:
+        ke[:, shear_idx[:, None], shear_idx[None, :]] += _batch_dkq_bending(
+            xy_local, fac_b, nu_)
 
     # 2x2 Gauss integration for membrane and bending
     for gi in range(2):
@@ -669,6 +774,32 @@ def _batch_cquad4_stiffness(xy_local, E_, nu_, t_, n_elem, r12_=1.0):
             km = np.einsum('nai,naj->nij', Bm, Dm_Bm) * detJ[:, None, None]  # (ne, 8, 8)
             ke[:, mem_idx[:, None], mem_idx[None, :]] += km
 
+            if qm6:
+                # 비적합 모드 P1 = 1-xi^2, P2 = 1-eta^2 의 변형률 (중심 J0 사상,
+                # detJ0/detJ 보정)
+                ratio = detJ0 / detJ                                      # (ne,)
+                dP_dxi = np.array([-2.0 * xi, 0.0])
+                dP_deta = np.array([0.0, -2.0 * eta])
+                dPdx = ratio[:, None] * (J0inv[:, 0, 0, None] * dP_dxi[None, :]
+                                         + J0inv[:, 0, 1, None] * dP_deta[None, :])
+                dPdy = ratio[:, None] * (J0inv[:, 1, 0, None] * dP_dxi[None, :]
+                                         + J0inv[:, 1, 1, None] * dP_deta[None, :])
+                Ba = np.zeros((ne, 3, 4))
+                for p in range(2):
+                    Ba[:, 0, p] = dPdx[:, p]
+                    Ba[:, 2, p] = dPdy[:, p]
+                    Ba[:, 1, 2 + p] = dPdy[:, p]
+                    Ba[:, 2, 2 + p] = dPdx[:, p]
+                Dm_Ba = np.empty((ne, 3, 4))
+                Dm_Ba[:, 0] = fac_m[:, None] * (Ba[:, 0] + nu_[:, None] * Ba[:, 1])
+                Dm_Ba[:, 1] = fac_m[:, None] * (nu_[:, None] * Ba[:, 0] + Ba[:, 1])
+                Dm_Ba[:, 2] = fac_m[:, None] * ((1 - nu_[:, None]) / 2) * Ba[:, 2]
+                kua += np.einsum('nai,naj->nij', Bm, Dm_Ba) * detJ[:, None, None]
+                kaa += np.einsum('nai,naj->nij', Ba, Dm_Ba) * detJ[:, None, None]
+
+            if dkq:
+                continue
+
             # --- Bending: Bb (ne, 3, 8) ---
             Bb = np.zeros((ne, 3, 8))
             for nd in range(4):
@@ -685,51 +816,59 @@ def _batch_cquad4_stiffness(xy_local, E_, nu_, t_, n_elem, r12_=1.0):
             kb = np.einsum('nai,naj->nij', Bb, Db_Bb) * detJ[:, None, None]
             ke[:, bend_idx[:, None], bend_idx[None, :]] += kb
 
-    # --- 1-point shear integration ---
-    dNdxi_c = 0.25 * np.array([-1.0, 1.0, 1.0, -1.0])
-    dNdeta_c = 0.25 * np.array([-1.0, -1.0, 1.0, 1.0])
-    N_c = np.array([0.25, 0.25, 0.25, 0.25])
+    if qm6:
+        # 정적 응축: k_mem = kuu - kua kaa^-1 kua^T (배치 solve)
+        x = np.linalg.solve(kaa, np.transpose(kua, (0, 2, 1)))   # (ne, 4, 8)
+        ke[:, mem_idx[:, None], mem_idx[None, :]] -= np.einsum('nij,njk->nik', kua, x)
 
-    J_c = np.empty((ne, 2, 2))
-    J_c[:, 0, 0] = dNdxi_c @ xy_local[:, :, 0].T
-    J_c[:, 0, 1] = dNdxi_c @ xy_local[:, :, 1].T
-    J_c[:, 1, 0] = dNdeta_c @ xy_local[:, :, 0].T
-    J_c[:, 1, 1] = dNdeta_c @ xy_local[:, :, 1].T
+    if not dkq:
+        # --- 1-point shear integration ---
+        dNdxi_c = 0.25 * np.array([-1.0, 1.0, 1.0, -1.0])
+        dNdeta_c = 0.25 * np.array([-1.0, -1.0, 1.0, 1.0])
+        N_c = np.array([0.25, 0.25, 0.25, 0.25])
 
-    detJ_c = J_c[:, 0, 0]*J_c[:, 1, 1] - J_c[:, 0, 1]*J_c[:, 1, 0]
-    inv_det_c = 1.0 / np.maximum(np.abs(detJ_c), 1e-30)
-    Jinv_c = np.empty((ne, 2, 2))
-    Jinv_c[:, 0, 0] = J_c[:, 1, 1] * inv_det_c
-    Jinv_c[:, 0, 1] = -J_c[:, 0, 1] * inv_det_c
-    Jinv_c[:, 1, 0] = -J_c[:, 1, 0] * inv_det_c
-    Jinv_c[:, 1, 1] = J_c[:, 0, 0] * inv_det_c
+        J_c = np.empty((ne, 2, 2))
+        J_c[:, 0, 0] = dNdxi_c @ xy_local[:, :, 0].T
+        J_c[:, 0, 1] = dNdxi_c @ xy_local[:, :, 1].T
+        J_c[:, 1, 0] = dNdeta_c @ xy_local[:, :, 0].T
+        J_c[:, 1, 1] = dNdeta_c @ xy_local[:, :, 1].T
 
-    dNdx_c = np.outer(Jinv_c[:, 0, 0], dNdxi_c).reshape(ne, 4) + \
-             np.outer(Jinv_c[:, 0, 1], dNdeta_c).reshape(ne, 4)
-    dNdy_c = np.outer(Jinv_c[:, 1, 0], dNdxi_c).reshape(ne, 4) + \
-             np.outer(Jinv_c[:, 1, 1], dNdeta_c).reshape(ne, 4)
+        detJ_c = J_c[:, 0, 0]*J_c[:, 1, 1] - J_c[:, 0, 1]*J_c[:, 1, 0]
+        inv_det_c = 1.0 / np.maximum(np.abs(detJ_c), 1e-30)
+        Jinv_c = np.empty((ne, 2, 2))
+        Jinv_c[:, 0, 0] = J_c[:, 1, 1] * inv_det_c
+        Jinv_c[:, 0, 1] = -J_c[:, 0, 1] * inv_det_c
+        Jinv_c[:, 1, 0] = -J_c[:, 1, 0] * inv_det_c
+        Jinv_c[:, 1, 1] = J_c[:, 0, 0] * inv_det_c
 
-    # 전단 변형률 (Nastran 절점회전 규약): gxz = dw/dx + theta_y,
-    # gyz = dw/dy - theta_x. 이전 부호(-theta_y/+theta_x)는 회전이 Nastran의
-    # 음수 규약이라 판 단독으로는 등가지만 보/강체와 절점을 공유하는 혼합
-    # 구조에서 전단 잠금을 일으켜 강성이 수백 배 과대였다 (MSC 대조로 확인).
-    Bs = np.zeros((ne, 2, 12))
-    for nd in range(4):
-        Bs[:, 0, 3*nd] = dNdx_c[:, nd]
-        Bs[:, 0, 3*nd+2] = N_c[nd]
-        Bs[:, 1, 3*nd] = dNdy_c[:, nd]
-        Bs[:, 1, 3*nd+1] = -N_c[nd]
+        dNdx_c = np.outer(Jinv_c[:, 0, 0], dNdxi_c).reshape(ne, 4) + \
+                 np.outer(Jinv_c[:, 0, 1], dNdeta_c).reshape(ne, 4)
+        dNdy_c = np.outer(Jinv_c[:, 1, 0], dNdxi_c).reshape(ne, 4) + \
+                 np.outer(Jinv_c[:, 1, 1], dNdeta_c).reshape(ne, 4)
 
-    # Ds @ Bs = fac_s * Bs (isotropic shear)
-    Ds_Bs = fac_s[:, None, None] * Bs  # (ne, 2, 12)
-    ks = np.einsum('nai,naj->nij', Bs, Ds_Bs) * (detJ_c * 4.0)[:, None, None]
-    ke[:, shear_idx[:, None], shear_idx[None, :]] += ks
+        # 전단 변형률 (Nastran 절점회전 규약): gxz = dw/dx + theta_y,
+        # gyz = dw/dy - theta_x. 이전 부호(-theta_y/+theta_x)는 회전이 Nastran의
+        # 음수 규약이라 판 단독으로는 등가지만 보/강체와 절점을 공유하는 혼합
+        # 구조에서 전단 잠금을 일으켜 강성이 수백 배 과대였다 (MSC 대조로 확인).
+        Bs = np.zeros((ne, 2, 12))
+        for nd in range(4):
+            Bs[:, 0, 3*nd] = dNdx_c[:, nd]
+            Bs[:, 0, 3*nd+2] = N_c[nd]
+            Bs[:, 1, 3*nd] = dNdy_c[:, nd]
+            Bs[:, 1, 3*nd+1] = -N_c[nd]
+
+        # Ds @ Bs = fac_s * Bs (isotropic shear)
+        Ds_Bs = fac_s[:, None, None] * Bs  # (ne, 2, 12)
+        ks = np.einsum('nai,naj->nij', Bs, Ds_Bs) * (detJ_c * 4.0)[:, None, None]
+        ke[:, shear_idx[:, None], shear_idx[None, :]] += ks
 
     # Drilling stabilization
     dl13 = xy_local[:, 2] - xy_local[:, 0]
     dl24 = xy_local[:, 3] - xy_local[:, 1]
     area = 0.5 * np.abs(dl13[:, 0]*dl24[:, 1] - dl13[:, 1]*dl24[:, 0])
-    alpha_drill = E_ * t_ * area * 1e-6  # (ne,)
+    # drill_scale(): 연구용 ASCENT_DRILL_SCALE 훅(기본 1.0). 요소 클래스
+    # 경로(quad4.py)와 같은 계수를 써야 벡터화 조립에서도 스윕이 반영된다.
+    alpha_drill = E_ * t_ * area * 1e-6 * drill_scale()  # (ne,)
     for nd in range(4):
         rz_dof = 6 * nd + 5
         ke[:, rz_dof, rz_dof] += alpha_drill
