@@ -47,8 +47,10 @@ def test_affine_reproduction_identities(n_sup, dz):
     W = build_ips_spline(xs, pts, dz)
     Wx = build_ips_spline_slope(xs, pts, dz)
     np.testing.assert_allclose(W.sum(axis=1), 1.0, atol=1e-10)
-    np.testing.assert_allclose(W @ xs[:, 0], pts[:, 0], rtol=0, atol=1e-8)
-    np.testing.assert_allclose(W @ xs[:, 1], pts[:, 1], rtol=0, atol=1e-8)
+    # 좌표는 O(100~2000) 이라 절대 1e-8 은 BLAS 반올림(리눅스 py3.10 러너에서
+    # 1.5e-8, 상대 9.5e-11)에 걸린다. 다른 항등식과 같은 상대 기준을 쓴다.
+    np.testing.assert_allclose(W @ xs[:, 0], pts[:, 0], rtol=1e-9, atol=1e-8)
+    np.testing.assert_allclose(W @ xs[:, 1], pts[:, 1], rtol=1e-9, atol=1e-8)
     np.testing.assert_allclose(Wx.sum(axis=1), 0.0, atol=1e-12)
     np.testing.assert_allclose(Wx @ xs[:, 0], 1.0, atol=1e-10)
     np.testing.assert_allclose(Wx @ xs[:, 1], 0.0, atol=1e-10)
