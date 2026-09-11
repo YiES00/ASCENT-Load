@@ -6,8 +6,6 @@
   5,
   6,
   10,
-  20,
-  22,
   24,
   26,
   27,
@@ -15,11 +13,14 @@
   29,
   30,
   31,
+  34,
   40,
   41,
   42,
   43,
   44,
+  45,
+  46,
   47,
   48,
   51,
@@ -74,12 +75,13 @@
   30,
   31,
   34,
-  37,
   40,
   41,
   42,
   43,
   44,
+  45,
+  46,
   47,
   48,
   51,
@@ -95,6 +97,7 @@
   20043,
   20049,
   20051,
+  20052,
   20055,
   20056,
   20066,
@@ -120,49 +123,55 @@
    "case_id": 20028,
    "label": "Tilt conv V=19.3m/s s=1.5deg nz=1.5 h=0m",
    "category": "vtol_tilt_transition",
-   "exceedance_pct": 0.85
-  },
-  {
-   "case_id": 21,
-   "label": "Yaw Left VA RUD=-25.0° β=0 MTOW",
-   "category": "yaw",
-   "exceedance_pct": 0.23
-  },
-  {
-   "case_id": 25,
-   "label": "Yaw Left VC RUD=-22.2° β=0 MTOW",
-   "category": "yaw",
-   "exceedance_pct": 0.2
+   "exceedance_pct": 0.93
   },
   {
    "case_id": 19,
    "label": "Yaw Right VA RUD=25.0° β=0 MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.06
+   "exceedance_pct": 0.12
+  },
+  {
+   "case_id": 21,
+   "label": "Yaw Left VA RUD=-25.0° β=0 MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.12
+  },
+  {
+   "case_id": 25,
+   "label": "Yaw Left VC RUD=-22.2° β=0 MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.11
   },
   {
    "case_id": 23,
    "label": "Yaw Right VC RUD=22.2° β=0 MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.06
+   "exceedance_pct": 0.1
+  },
+  {
+   "case_id": 20052,
+   "label": "Tilt conv V=35.0m/s s=4.0deg nz=1.5 h=0m",
+   "category": "vtol_tilt_transition",
+   "exceedance_pct": 0.05
+  },
+  {
+   "case_id": 20,
+   "label": "Yaw Right VA RUD=25.0° β=overswing MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.04
+  },
+  {
+   "case_id": 22,
+   "label": "Yaw Left VA RUD=-25.0° β=overswing MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.04
   },
   {
    "case_id": 20066,
    "label": "Tilt stuck R1 s=90deg (sched 46.2deg) V=25.8m/s h=0m",
    "category": "vtol_tilt_stuck",
    "exceedance_pct": 0.01
-  },
-  {
-   "case_id": 34,
-   "label": "Checked VC nz=3.80 MTOW",
-   "category": "checked",
-   "exceedance_pct": 0.0
-  },
-  {
-   "case_id": 37,
-   "label": "Flap VF nz=2.0 MTOW",
-   "category": "flap",
-   "exceedance_pct": 0.0
   }
  ],
  "only_2d": [],
@@ -178,15 +187,14 @@
  ],
  "categories_3d": {
   "symmetric": 5,
-  "yaw": 12,
   "gust": 1,
-  "vtol_tilt_transition": 10,
+  "yaw": 12,
+  "vtol_tilt_transition": 11,
   "vtol_retrim": 8,
-  "landing": 11,
+  "landing": 13,
   "checked": 2,
   "vtol_hover": 1,
   "vtol_rotor_jam": 8,
-  "vtol_tilt_stuck": 1,
-  "flap": 1
+  "vtol_tilt_stuck": 1
  }
 }

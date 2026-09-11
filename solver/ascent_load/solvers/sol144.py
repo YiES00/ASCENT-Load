@@ -689,7 +689,8 @@ def _build_shared_data(bdf_model: BDFModel,
     logger.info("  Building spline coupling matrices G_w and G_d...")
     G_w_dense, G_d_dense, G_force_node = _build_geff_per_spline(
         bdf_model, boxes, box_id_to_index, fe_model.dof_mgr, f_dofs,
-        slope_method=spline_slope_method, collect_node_force=True)
+        slope_method=spline_slope_method, collect_node_force=True,
+        slave_deps=fe_model.slave_deps)
     logger.info("  G_w (normalwash): max = %.4f, nonzeros = %d / %d",
                 np.max(np.abs(G_w_dense)) if G_w_dense.size > 0 else 0,
                 np.count_nonzero(G_w_dense), G_w_dense.size)
@@ -1448,7 +1449,7 @@ def _solve_trim_subcase(bdf_model: BDFModel, fe_model: FEModel,
 
     G_w_dense, G_d_dense, G_force_node = _build_geff_per_spline(
         bdf_model, boxes, box_id_to_index, fe_model.dof_mgr, f_dofs,
-        collect_node_force=True)
+        collect_node_force=True, slave_deps=fe_model.slave_deps)
     G_sp = sp.csr_matrix(G_w_dense)
     G_disp = sp.csr_matrix(G_d_dense)
     del G_w_dense, G_d_dense
@@ -1805,8 +1806,16 @@ def _build_geff_per_spline(bdf_model: BDFModel, boxes: List[AeroBox],
                             dof_mgr: DOFManager,
                             f_dofs: List[int],
                             slope_method: str = 'surface',
-                            collect_node_force: bool = False):
+                            collect_node_force: bool = False,
+                            slave_deps: dict = None):
     """Build spline coupling matrices using per-spline mapping.
+
+    slave_deps: RBE2/RBE3/MPC 소거로 f-set 에서 빠진 종속 자유도의
+    {slave_dof: [(master_dof, coeff), ...]}. 스플라인 SET 절점이 종속
+    절점(예: 날개 루트를 동체에 묶는 RBE2 의 종속 쪽)이면 그 가중치를
+    주 자유도로 옮겨 싣는다. 없으면 종속 절점의 가중치가 통째로
+    사라져 힘 전달 합(=1)이 깨지고, 잃은 공력이 마운트(SUPORT)
+    반력으로 흡수된다 (2026-09-08, ILC-8 루트 박스 행합 -1.6).
 
     Returns TWO matrices:
     - G_w: normalwash coupling (structural DOFs → panel normalwash/slope)
@@ -1870,7 +1879,7 @@ def _build_geff_per_spline(bdf_model: BDFModel, boxes: List[AeroBox],
         G_ka_force = build_beam_spline(struct_xyz, force_pts, axis=1)
         _fill_geff(G_w, G_d, G_ka_wash, G_ka_force, range(n_boxes), all_nids,
                    force_pts, struct_xyz, dof_mgr, f_dof_index,
-                   node_force=node_force)
+                   node_force=node_force, slave_deps=slave_deps)
         return _finish(G_w, G_d)
 
     # Process each spline independently
@@ -1981,7 +1990,7 @@ def _build_geff_per_spline(bdf_model: BDFModel, boxes: List[AeroBox],
         _fill_geff(G_w, G_d, G_ka_wash, G_ka_force, spline_box_indices,
                    spline_nids, force_pts, struct_xyz, dof_mgr, f_dof_index,
                    G_ka_slope=G_ka_slope, node_force=node_force,
-                   frame=(e1, e2))
+                   frame=(e1, e2), slave_deps=slave_deps)
 
     return _finish(G_w, G_d)
 
@@ -1992,7 +2001,8 @@ def _fill_geff(G_w: np.ndarray, G_d: np.ndarray, G_ka_wash: np.ndarray,
                dof_mgr: DOFManager, f_dof_index: dict,
                G_ka_slope: np.ndarray = None,
                node_force: tuple = None,
-               frame: tuple = None) -> None:
+               frame: tuple = None,
+               slave_deps: dict = None) -> None:
     """Fill both normalwash (G_w) and displacement (G_d) coupling matrices.
 
     G_w: normalwash matrix — maps structural DOFs to normalwash (slope dz/dx),
@@ -2048,14 +2058,27 @@ def _fill_geff(G_w: np.ndarray, G_d: np.ndarray, G_ka_wash: np.ndarray,
         e1_p, e2_p = np.asarray(frame[0]), np.asarray(frame[1])
         n_p = np.cross(e1_p, e2_p)
 
+    def _put(G, i_box, d, val):
+        # f-set 자유도면 그대로, RBE2/RBE3/MPC 종속 자유도면 주 자유도로
+        # 옮겨 싣는다 (u_s = Σ coeff·u_m 이므로 G 열도 같은 계수로 합산;
+        # 하중 쪽 apply_load_elimination 과 짝). SPC 자유도는 버린다.
+        j = f_dof_index.get(d)
+        if j is not None:
+            G[i_box, j] += val
+            return
+        terms = slave_deps.get(d) if slave_deps else None
+        if terms:
+            for m_dof, coeff in terms:
+                jm = f_dof_index.get(m_dof)
+                if jm is not None:
+                    G[i_box, jm] += val * coeff
+
     def _add_translations(G, i_box, nid, w):
         for comp in (1, 2, 3):
             nk = n_p[comp - 1]
             if abs(nk) < 1e-12:
                 continue
-            d = dof_mgr.get_dof(nid, comp)
-            if d in f_dof_index:
-                G[i_box, f_dof_index[d]] += w * nk
+            _put(G, i_box, dof_mgr.get_dof(nid, comp), w * nk)
 
     if G_ka_slope is not None:
         # ── surface (SPLINE1) mode: translations only ──
@@ -2099,12 +2122,10 @@ def _fill_geff(G_w: np.ndarray, G_d: np.ndarray, G_ka_wash: np.ndarray,
                 if abs(ek) < 1e-12:
                     continue
                 d_rot = dof_mgr.get_dof(nid, comp)
-                if d_rot not in f_dof_index:
-                    continue
                 if abs(w_wash) > 1e-15:
-                    G_w[i_box, f_dof_index[d_rot]] -= w_wash * ek
+                    _put(G_w, i_box, d_rot, -w_wash * ek)
                 if abs(w_force) > 1e-15 and abs(dx) > 1e-12:
-                    G_d[i_box, f_dof_index[d_rot]] -= w_force * dx * ek
+                    _put(G_d, i_box, d_rot, -w_force * dx * ek)
 
 
 # ---------------------------------------------------------------------------

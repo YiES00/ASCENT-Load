@@ -6,8 +6,6 @@
   5,
   6,
   10,
-  20,
-  22,
   24,
   26,
   27,
@@ -15,7 +13,7 @@
   29,
   30,
   31,
-  37,
+  34,
   40,
   41,
   42,
@@ -110,34 +108,46 @@
  ],
  "only_3d": [
   {
-   "case_id": 21,
-   "label": "Yaw Left VA RUD=-25.0° β=0 MTOW",
-   "category": "yaw",
-   "exceedance_pct": 0.25
-  },
-  {
-   "case_id": 25,
-   "label": "Yaw Left VC RUD=-22.2° β=0 MTOW",
-   "category": "yaw",
-   "exceedance_pct": 0.21
-  },
-  {
    "case_id": 19,
    "label": "Yaw Right VA RUD=25.0° β=0 MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.05
+   "exceedance_pct": 0.12
+  },
+  {
+   "case_id": 21,
+   "label": "Yaw Left VA RUD=-25.0° β=0 MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.12
   },
   {
    "case_id": 23,
    "label": "Yaw Right VC RUD=22.2° β=0 MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.05
+   "exceedance_pct": 0.11
   },
   {
-   "case_id": 34,
-   "label": "Checked VC nz=3.80 MTOW",
-   "category": "checked",
-   "exceedance_pct": 0.0
+   "case_id": 25,
+   "label": "Yaw Left VC RUD=-22.2° β=0 MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.11
+  },
+  {
+   "case_id": 20,
+   "label": "Yaw Right VA RUD=25.0° β=overswing MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.04
+  },
+  {
+   "case_id": 22,
+   "label": "Yaw Left VA RUD=-25.0° β=overswing MTOW",
+   "category": "yaw",
+   "exceedance_pct": 0.04
+  },
+  {
+   "case_id": 37,
+   "label": "Flap VF nz=2.0 MTOW",
+   "category": "flap",
+   "exceedance_pct": 0.02
   }
  ],
  "only_2d": []
