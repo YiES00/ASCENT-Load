@@ -159,13 +159,13 @@
    "case_id": 20,
    "label": "Yaw Right VA RUD=25.0° β=overswing MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.04
+   "exceedance_pct": 0.01
   },
   {
    "case_id": 22,
    "label": "Yaw Left VA RUD=-25.0° β=overswing MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.04
+   "exceedance_pct": 0.01
   },
   {
    "case_id": 20066,

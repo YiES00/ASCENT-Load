@@ -54,7 +54,9 @@ from ascent_load.loads_analysis.trim_loads import (               # noqa: E402
     compute_node_masses,
 )
 
-from compare_hull_selection import run_selection               # noqa: E402
+from compare_hull_selection import (                          # noqa: E402
+    normalization_spans, run_selection,
+)
 from hull3d_severity_search import (                           # noqa: E402
     BatchResult, build_components, exceedance_all, run_variant,
 )
@@ -183,10 +185,18 @@ def main() -> None:
     base_ids = [cid for cid in vmt]
     base_mat = np.stack([vmt_to_mat(vmt[cid], comps) for cid in base_ids])
     sel_rows = [k for k, cid in enumerate(base_ids) if cid in s2]
+    # 컴포넌트별 정규화 스팬(하한 포함) — 최종 검증 지표와 같은 정의
+    spans = np.empty((n_sta_total, 3))
+    off = 0
+    for comp in comps:
+        n_c = len(basis_vmt[900000][comp]["stations"])
+        spans[off:off + n_c] = normalization_spans(
+            base_mat[:, off:off + n_c, :])
+        off += n_c
 
     # ── 4. 스테이션별 평가: 짝지어 내부 & 3D 초과 ──
     # (V_pat 전체 저장은 수백 MB — 스테이션별 P@B로 온더플라이 계산.
-    #  정규화 스팬은 기준 매트릭스 기준: 최종 검증 지표와 일치.)
+    #  정규화 스팬은 기준 매트릭스 기준(하한 포함): 최종 검증 지표와 일치.)
     from scipy.spatial import ConvexHull
 
     N = len(P)
@@ -197,8 +207,7 @@ def main() -> None:
         pts = base_mat[:, si, :]
         pr = P @ B[:, si, :]                               # (N, 3)
         lo = pts.min(axis=0)
-        span = np.ptp(pts, axis=0)
-        span[span == 0] = 1.0
+        span = spans[si]
         q = (pts - lo) / span
         qp = (pr - lo) / span
         # 짝지어(2D) 내부성 — 전 매트릭스 헐 기준

@@ -67,7 +67,9 @@ from ascent_load.loads_analysis.component_id import (             # noqa: E402
 from ascent_load.loads_analysis.trim_loads import compute_node_masses  # noqa: E402
 from ascent_load.models.ilc8 import make_ilc8_vtol_config         # noqa: E402
 
-from compare_hull_selection import exceedance, run_selection   # noqa: E402
+from compare_hull_selection import (                          # noqa: E402
+    component_curves, exceedance, normalization_spans, run_selection,
+)
 
 G = 9.80665
 
@@ -298,22 +300,16 @@ def exceedance_all(vmt_data, base_ids):
         comps.update(cd.keys())
     for comp in comps:
         cids = [c for c in vmt_data if comp in vmt_data[c]]
-        n_sta = len(vmt_data[cids[0]][comp]["stations"])
-        P = np.empty((len(cids), n_sta, 3))
-        for k, cid in enumerate(cids):
-            d = vmt_data[cid][comp]
-            P[k, :, 0] = d["shear"]
-            P[k, :, 1] = d["bending"]
-            P[k, :, 2] = d["torsion"]
+        P = component_curves(vmt_data, cids, comp)
+        n_sta = P.shape[1]
         base_rows = [k for k, c in enumerate(cids) if c in base_ids]
         if len(base_rows) < 4:
             continue
+        spans = normalization_spans(P)
         for i in range(n_sta):
             pts = P[:, i, :]
             lo = pts.min(axis=0)
-            span = np.ptp(pts, axis=0)
-            span[span == 0] = 1.0
-            q = (pts - lo) / span
+            q = (pts - lo) / spans[i]
             try:
                 hull = ConvexHull(q[base_rows])
             except Exception:

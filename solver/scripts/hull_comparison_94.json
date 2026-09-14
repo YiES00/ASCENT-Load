@@ -135,20 +135,24 @@
    "case_id": 20,
    "label": "Yaw Right VA RUD=25.0° β=overswing MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.04
+   "exceedance_pct": 0.01
   },
   {
    "case_id": 22,
    "label": "Yaw Left VA RUD=-25.0° β=overswing MTOW",
    "category": "yaw",
-   "exceedance_pct": 0.04
+   "exceedance_pct": 0.01
   },
   {
    "case_id": 37,
    "label": "Flap VF nz=2.0 MTOW",
    "category": "flap",
-   "exceedance_pct": 0.02
+   "exceedance_pct": 0.0
   }
  ],
- "only_2d": []
+ "only_2d": [],
+ "n_critical": {
+  "2d": 5891,
+  "3d": 4249
+ }
 }

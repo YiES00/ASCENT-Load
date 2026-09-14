@@ -6,8 +6,10 @@ For each method the compact design-case set is extracted; the
 difference sets are then scored with a *directional exceedance*
 metric: for a case selected only by the 3-D hull, how far outside
 the convex hull of the 2-D-selected cases' (V,M,T) points does it
-lie (scaled per-station so each quantity's range is 1.0)? That
-distance is the worst-direction load underprediction a stress
+lie (scaled per-station so each quantity's range is 1.0, with the
+range floored at SPAN_FLOOR times the component's largest station
+range so that near-zero-load stations cannot inflate the metric)?
+That distance is the worst-direction load underprediction a stress
 engineer would accept by sizing with the 2-D set alone.
 
 Usage:  python scripts/compare_hull_selection.py
@@ -94,9 +96,41 @@ def run_selection(batch, vmt_data, mode: str):
     return proc, proc.select_design_cases()
 
 
+SPAN_FLOOR = 0.05
+# 스테이션별 정규화 스팬의 하한 = 그 축의 컴포넌트 최대 스테이션 범위 × 0.05.
+# 하중이 0에 가까운 날개 끝 스테이션의 미소 범위(예: ILC-8 좌익 y=−6.0 m 에서
+# V 39 N·M 20 N·mm)가 방향 초과율을 부풀리던 인공물을 막는다(2026-09-14).
+# 선정(볼록 껍질 꼭짓점)은 축 스케일에 불변이므로 설계 세트는 영향이 없다.
+
+
+def component_curves(vmt_data, cids, comp):
+    """케이스 목록의 한 컴포넌트 (V,M,T) 곡선 → (n_cases, n_sta, 3)."""
+    n_sta = len(vmt_data[cids[0]][comp]["stations"])
+    P = np.empty((len(cids), n_sta, 3))
+    for k, cid in enumerate(cids):
+        d = vmt_data[cid][comp]
+        P[k, :, 0] = d["shear"]
+        P[k, :, 1] = d["bending"]
+        P[k, :, 2] = d["torsion"]
+    return P
+
+
+def normalization_spans(P):
+    """한 컴포넌트의 (n_cases, n_sta, 3) 곡선 → (n_sta, 3) 정규화 스팬.
+    스테이션별 축 범위에 SPAN_FLOOR × (그 축의 컴포넌트 최대 스테이션
+    범위)의 하한을 둔다. 세 초과율 구현(이 함수, hull3d_severity_search.
+    exceedance_all, hull3d_combo_search 의 그리드 평가)이 공유한다."""
+    span = np.ptp(P, axis=0)
+    floor = SPAN_FLOOR * span.max(axis=0)
+    span = np.maximum(span, floor[None, :])
+    span[span == 0] = 1.0
+    return span
+
+
 def exceedance(vmt_data, base_ids, probe_id) -> float:
     """probe 케이스가 base 선정 세트의 (V,M,T) 헐 밖으로 나가는 최대
-    거리 (스테이션별 각 축 범위=1로 정규화한 공간, 최악 방향)."""
+    거리 (스테이션별 각 축 범위=1로 정규화한 공간, 최악 방향;
+    스팬 하한은 normalization_spans 참조)."""
     from scipy.spatial import ConvexHull
 
     worst = 0.0
@@ -107,22 +141,17 @@ def exceedance(vmt_data, base_ids, probe_id) -> float:
         cids = [c for c in vmt_data if comp in vmt_data[c]]
         if probe_id not in cids:
             continue
-        n_sta = len(vmt_data[cids[0]][comp]["stations"])
-        for i in range(n_sta):
-            def _pt(cid):
-                d = vmt_data[cid][comp]
-                return np.array([float(d["shear"][i]),
-                                 float(d["bending"][i]),
-                                 float(d["torsion"][i])])
-            all_pts = np.array([_pt(c) for c in cids])
-            span = np.ptp(all_pts, axis=0)
-            span[span == 0] = 1.0
-            base_pts = np.array([_pt(c) for c in cids if c in base_ids])
-            if len(base_pts) < 4:
-                continue
-            lo = all_pts.min(axis=0)
-            b = (base_pts - lo) / span
-            p = (_pt(probe_id) - lo) / span
+        base_rows = [k for k, c in enumerate(cids) if c in base_ids]
+        if len(base_rows) < 4:
+            continue
+        P = component_curves(vmt_data, cids, comp)
+        spans = normalization_spans(P)
+        kp = cids.index(probe_id)
+        for i in range(P.shape[1]):
+            pts = P[:, i, :]
+            lo = pts.min(axis=0)
+            b = (pts[base_rows] - lo) / spans[i]
+            p = (pts[kp] - lo) / spans[i]
             try:
                 hull = ConvexHull(b)
             except Exception:
